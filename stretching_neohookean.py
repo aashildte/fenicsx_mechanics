@@ -31,7 +31,8 @@ def psi_neohookean(
 
     IIFx = ufl.tr(C)
 
-    return 1E3*(IIFx - 3)
+    C10 = 2
+    return C10*(IIFx - 3)
 
 
 def define_weak_form(mesh, stretch_fun):
@@ -178,7 +179,7 @@ def define_bcs(V, mesh, stretch_fun):
 
 
 mesh = df.mesh.create_unit_cube(MPI.COMM_WORLD, 2, 2, 2)
-stretch = np.linspace(0, 0.1, 10)
+stretch = np.linspace(0, 0.001, 10)
 stretch_fun = df.fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 weak_form, state, _, bcs = define_weak_form(mesh, stretch_fun)
@@ -190,7 +191,7 @@ solver.rtol=1e-2
 solver.atol=1e-2
 solver.convergence_criterium = "incremental"
 
-df.log.set_log_level(df.cpp.log.LogLevel(2))
+#df.log.set_log_level(df.cpp.log.LogLevel(2))
 
 for s in stretch:
     print(f"Domain stretch: {100*s:.5f} %")
