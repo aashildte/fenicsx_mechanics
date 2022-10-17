@@ -28,14 +28,19 @@ def psi_holzapfel(
 
     """
 
-    a=0.074
-    b=4.878
-    a_f=2.628
-    b_f=5.214
+    #a=0.074
+    #b=4.878
+    #a_f=2.628
+    #b_f=5.214
+
+    a = 0.074
+    b = 4.878
+    a_f = 2.628
+    b_f = 5.214
 
     J = ufl.det(F)
-    #C = pow(J, -float(2) / 3) * F.T * F
-    C = F.T * F
+    C = pow(J, -float(2) / 3) * F.T * F
+    #C = F.T * F
  
     e1 = ufl.as_vector([1.0, 0.0, 0.0])
 
@@ -47,8 +52,7 @@ def psi_holzapfel(
     W_hat = a / (2 * b) * (ufl.exp(b * (IIFx - 3)) - 1)
     W_f = a_f / (2 * b_f) * (ufl.exp(b_f * cond(I4e1 - 1) ** 2) - 1)
 
-    return W_hat + W_f
-
+    return  W_hat + W_f
 
 def psi_neohookean(
     F,
@@ -67,13 +71,12 @@ def psi_neohookean(
     """
 
     J = ufl.det(F)
-    #C = pow(J, -float(2) / 3) * F.T * F
-    C = F.T * F
+    #C = F.T * F
+    C = pow(J, -float(2) / 3) * F.T * F
 
     IIFx = ufl.tr(C)
 
-    return (C10/2)*(IIFx - 3) - C10*ufl.ln(J)
-
+    return (C10/2)*(IIFx - 3) # add this term for non-isochoric version: - C10*ufl.ln(J)         
 
 def define_weak_form(mesh, stretch_fun):
     """
@@ -120,7 +123,7 @@ def define_weak_form(mesh, stretch_fun):
     
     
     lmbda = 1000
-    psi = psi_neohookean(F) + lmbda/2*(J*ufl.ln(J) - J + 1)
+    psi = psi_holzapfel(F) + lmbda/2*(J*ufl.ln(J) - J + 1)
     P = ufl.diff(psi, F)
     weak_form = ufl.inner(P, ufl.grad(v)) * dx
     """
@@ -154,7 +157,7 @@ def elasticity_term(F, J, p, v, dx):
 
     """
 
-    psi = psi_neohookean(F)
+    psi = psi_holzapfel(F)
     P = ufl.diff(psi, F) + p * J * ufl.inv(F.T)
     
     return ufl.inner(P, ufl.grad(v)) * dx
@@ -237,7 +240,7 @@ def define_bcs(V, mesh, stretch_fun):
 
 
 mesh = df.mesh.create_unit_cube(MPI.COMM_WORLD, 2, 2, 2)
-stretch = np.linspace(0, 0.1, 10)
+stretch = np.linspace(0, 0.1, 50)
 stretch_fun = df.fem.Constant(mesh, PETSc.ScalarType(0.0))
 
 weak_form, state, bcs = define_weak_form(mesh, stretch_fun)
