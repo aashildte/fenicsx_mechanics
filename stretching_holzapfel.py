@@ -28,12 +28,7 @@ def psi_holzapfel(
 
     """
 
-    #a=0.074
-    #b=4.878
-    #a_f=2.628
-    #b_f=5.214
-
-    a = 0.074
+    a = 10 #0.074
     b = 4.878
     a_f = 2.628
     b_f = 5.214
@@ -78,7 +73,7 @@ def psi_neohookean(
 
     return (C10/2)*(IIFx - 3) # add this term for non-isochoric version: - C10*ufl.ln(J)         
 
-def define_weak_form(mesh, stretch_fun):
+def define_weak_form(mesh):
     """
 
     Defines function spaces (P1 x P2 x RM) and functions to solve for,
@@ -86,15 +81,15 @@ def define_weak_form(mesh, stretch_fun):
 
     Args:
         mesh (df.Mesh): domain to solve equations over
-        stretch_fun (ufl form): function that assigns Dirichlet bcs
-                on wall to be stretched/extended
 
     Returns:
         weak form (ufl form), state, displacement, boundary conditions
+        stretch_fun (ufl form): function that assigns Dirichlet bcs
+                on wall to be stretched/extended
 
     """
     
-    """
+    
     P2 = ufl.VectorElement("Lagrange", mesh.ufl_cell(), 2)
     P1 = ufl.FiniteElement("Lagrange", mesh.ufl_cell(), 1)
 
@@ -103,13 +98,13 @@ def define_weak_form(mesh, stretch_fun):
     state = df.fem.Function(state_space)
     test_state = ufl.TestFunctions(state_space)
 
-    u, p = state.split()
+    u, p = ufl.split(state)
     v, q = test_state
     """
     V = df.fem.VectorFunctionSpace(mesh, ("CG", 2))
     v = ufl.TestFunction(V)
     u = df.fem.Function(V)
-    
+    """
     # Kinematics
     d = len(u)
     I = ufl.Identity(d)                # Identity tensor
@@ -121,7 +116,7 @@ def define_weak_form(mesh, stretch_fun):
     metadata = {"quadrature_degree": 4}
     dx = ufl.Measure("dx", domain=mesh, metadata=metadata)
     
-    
+    """
     lmbda = 1000
     psi = psi_holzapfel(F) + lmbda/2*(J*ufl.ln(J) - J + 1)
     P = ufl.diff(psi, F)
@@ -130,15 +125,12 @@ def define_weak_form(mesh, stretch_fun):
 
     weak_form = 0
     weak_form += elasticity_term(F, J, p, v, dx)
-    weak_form += pressure_term(q, J, dx)
-
-    V, _ = state_space.sub(0).collapse()
-    """
+    weak_form += pressure_term(q, J, dx) 
     
-    bcs = define_bcs(V, mesh, stretch_fun)
-    state = u
+    bcs, stretch_fun = define_bcs(state_space, mesh)
+    #state = u
     
-    return weak_form, state, bcs
+    return weak_form, state, bcs, stretch_fun
 
 
 def elasticity_term(F, J, p, v, dx):
@@ -157,7 +149,7 @@ def elasticity_term(F, J, p, v, dx):
 
     """
 
-    psi = psi_holzapfel(F)
+    psi = psi_neohookean(F)
     P = ufl.diff(psi, F) + p * J * ufl.inv(F.T)
     
     return ufl.inner(P, ufl.grad(v)) * dx
@@ -179,7 +171,7 @@ def pressure_term(q, J, dx):
     return q * (J - 1) * dx
 
 
-def define_bcs(V, mesh, stretch_fun):
+def define_bcs(state_space, mesh):
     """
 
     Defines boundary conditions based on displacement, assuming the domain
@@ -188,15 +180,15 @@ def define_bcs(V, mesh, stretch_fun):
     planes, while stretching the side defined by the highest x coord.
 
     Args:
-        V (df.VectorFunctionSpace): function space for displacement
+        state_space (FunctionSpace): function space for displacement and pressure
         mesh (df.Mesh): Domain in which we solve the problem
-        stretch_fun (ufl form): function that assigns Dirichlet bcs
-                on wall to be stretched/extended
 
     Returns:
         List of boundary conditions
-
+        stretch_fun (ufl form): function that assigns Dirichlet bcs
+                on wall to be stretched/extended
     """
+    
 
     coords = mesh.geometry.x
     xmin = min(coords[:, 0])
@@ -221,29 +213,37 @@ def define_bcs(V, mesh, stretch_fun):
     bcs = []
 
     for bnd_fun, comp in zip(bnd_funs, components):
+        V0, _ = state_space.sub(0).collapse()
+        V0x, _ = V0.sub(comp).collapse()
+
+        u_fixed = fem.Function(V0)
+        u_fixed.vector.array[:] = 0
+
         boundary_facets = df.mesh.locate_entities_boundary(mesh, fdim, bnd_fun)
-        dofs = df.fem.locate_dofs_topological(V, fdim, boundary_facets)
+        dofs = df.fem.locate_dofs_topological((state_space.sub(0).sub(comp), V0x), fdim, boundary_facets)
         
-        bc = df.fem.dirichletbc(u_fixed, dofs, V.sub(0))
+        bc = df.fem.dirichletbc(u_fixed, dofs, state_space.sub(0).sub(comp))
         bcs.append(bc)
         
-
     # then the moving one
+    V0, _ = state_space.sub(0).collapse()
+    V0x, _ = V0.sub(comp).collapse()
+    
+    stretch_fun = fem.Function(V0x)
+    stretch_fun.vector.array[:] = 0
 
     boundary_facets = df.mesh.locate_entities_boundary(mesh, fdim, xmax_bnd)
-    dofs = df.fem.locate_dofs_topological(V, fdim, boundary_facets)
+    dofs = df.fem.locate_dofs_topological((state_space.sub(0).sub(0), V0x), fdim, boundary_facets)
     
-    bc = df.fem.dirichletbc(stretch_fun, dofs, V.sub(0))
+    bc = df.fem.dirichletbc(stretch_fun, dofs, state_space.sub(0).sub(0))
     bcs.append(bc)
-
-    return bcs
+    
+    return bcs, stretch_fun
 
 
 mesh = df.mesh.create_unit_cube(MPI.COMM_WORLD, 2, 2, 2)
-stretch = np.linspace(0, 0.1, 50)
-stretch_fun = df.fem.Constant(mesh, PETSc.ScalarType(0.0))
 
-weak_form, state, bcs = define_weak_form(mesh, stretch_fun)
+weak_form, state, bcs, stretch_fun = define_weak_form(mesh)
 
 problem = df.fem.petsc.NonlinearProblem(weak_form, state, bcs)
 solver = df.nls.petsc.NewtonSolver(mesh.comm, problem)
@@ -253,7 +253,9 @@ solver.atol=1e-4
 solver.convergence_criterium = "incremental"
 
 
-for s in stretch:
+stretch_values = np.linspace(0, 0.1, 10)
+
+for s in stretch_values:
     print(f"Domain stretch: {100*s:.5f} %")
-    stretch_fun.value = s
+    stretch_fun.vector.array[:] = s
     solver.solve(state)
