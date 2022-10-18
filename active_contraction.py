@@ -170,6 +170,7 @@ def define_bcs(state_space, mesh):
     xmin_bnd = lambda x : np.isclose(x[0], xmin)
     ymin_bnd = lambda x : np.isclose(x[1], ymin)
     zmin_bnd = lambda x : np.isclose(x[2], zmin)
+    corner = lambda x : np.logical_and(np.logical_and(xmin_bnd(x), ymin_bnd(x)), zmin_bnd(x))
 
     fdim = 2 
     bcs = []
@@ -178,8 +179,8 @@ def define_bcs(state_space, mesh):
     
     bnd_funs = [xmin_bnd, ymin_bnd, zmin_bnd]
     components = [0, 1, 2]
-
-    V0, _ = state_space.sub(0).collapse()
+    
+    V0, _ = state_space.sub(0).collapse()    
 
     for bnd_fun, comp in zip(bnd_funs, components):
         V_c, _ = V0.sub(comp).collapse()
@@ -188,8 +189,18 @@ def define_bcs(state_space, mesh):
         dofs = fem.locate_dofs_geometrical((state_space.sub(0).sub(comp),V_c), bnd_fun)
         bc = fem.dirichletbc(u_fixed, dofs, state_space.sub(0).sub(comp))
         bcs.append(bc)
+    
 
+    # fix corner completely
+    
+    u_fixed = fem.Function(V0)
+    u_fixed.vector.array[:] = 0
+    dofs = fem.locate_dofs_geometrical((state_space.sub(0),V0), corner)
+    bc = fem.dirichletbc(u_fixed, dofs, state_space.sub(0))
+    bcs.append(bc)
+    
     return bcs
+
 
 def active_strain_value(t):
     """
@@ -202,11 +213,11 @@ def active_strain_value(t):
     """
     theta = 50
     k = 5
-    scaling_parameter = 3
+    scaling_parameter = 2
     return scaling_parameter/(theta**k)*t**(k-1)*np.exp(-t/theta)
     
 
-time = np.linspace(0, 1000, 1000)
+time = np.linspace(0, 200, 200)
 active_values = active_strain_value(time)
 
 
