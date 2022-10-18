@@ -201,33 +201,27 @@ def define_bcs(state_space, mesh):
     ymin_bnd = lambda x : np.isclose(x[1], ymin)
     zmin_bnd = lambda x : np.isclose(x[2], zmin)
 
-    fdim = 2
-
+    fdim = 2 
+    bcs = []
+    
     # first define the fixed boundaries
-
-    u_fixed = df.fem.Constant(mesh, PETSc.ScalarType(0))
     
     bnd_funs = [xmin_bnd, ymin_bnd, zmin_bnd]
     components = [0, 1, 2]
 
-    bcs = []
+    V0, _ = state_space.sub(0).collapse()
 
     for bnd_fun, comp in zip(bnd_funs, components):
-        V0, _ = state_space.sub(0).collapse()
-        V0x, _ = V0.sub(comp).collapse()
-
-        u_fixed = fem.Function(V0)
+        V_c, _ = V0.sub(comp).collapse()
+        u_fixed = fem.Function(V_c)
         u_fixed.vector.array[:] = 0
-
-        boundary_facets = df.mesh.locate_entities_boundary(mesh, fdim, bnd_fun)
-        dofs = df.fem.locate_dofs_topological((state_space.sub(0).sub(comp), V0x), fdim, boundary_facets)
-        
-        bc = df.fem.dirichletbc(u_fixed, dofs, state_space.sub(0).sub(comp))
+        dofs = fem.locate_dofs_geometrical((state_space.sub(0).sub(comp),V_c), bnd_fun)
+        bc = fem.dirichletbc(u_fixed, dofs, state_space.sub(0).sub(comp))
         bcs.append(bc)
-        
+    
     # then the moving one
     V0, _ = state_space.sub(0).collapse()
-    V0x, _ = V0.sub(comp).collapse()
+    V0x, _ = V0.sub(0).collapse()
     
     stretch_fun = fem.Function(V0x)
     stretch_fun.vector.array[:] = 0
@@ -237,8 +231,9 @@ def define_bcs(state_space, mesh):
     
     bc = df.fem.dirichletbc(stretch_fun, dofs, state_space.sub(0).sub(0))
     bcs.append(bc)
-    
-    return bcs, stretch_fun
+
+    return bcs, stretch_fun 
+
 
 
 mesh = df.mesh.create_unit_cube(MPI.COMM_WORLD, 2, 2, 2)
@@ -252,10 +247,17 @@ solver.rtol=1e-4
 solver.atol=1e-4
 solver.convergence_criterium = "incremental"
 
+stretch_values = np.linspace(0, 0.2, 10)
 
-stretch_values = np.linspace(0, 0.1, 10)
+fout = df.io.XDMFFile(mesh.comm, "displacement.xdmf", "w")
+fout.write_mesh(mesh)
 
 for s in stretch_values:
     print(f"Domain stretch: {100*s:.5f} %")
     stretch_fun.vector.array[:] = s
     solver.solve(state)
+    u, _ = state.split()
+
+    fout.write_function(u, s)
+
+fout.close()
