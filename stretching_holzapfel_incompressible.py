@@ -10,9 +10,6 @@ import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
 
-from dolfinx import fem, plot, nls, cpp, log
-
-
 def psi_holzapfel(
     F,
 ):
@@ -179,17 +176,17 @@ def define_bcs(state_space, mesh):
 
     for bnd_fun, comp in zip(bnd_funs, components):
         V_c, _ = V0.sub(comp).collapse()
-        u_fixed = fem.Function(V_c)
+        u_fixed = df.fem.Function(V_c)
         u_fixed.vector.array[:] = 0
-        dofs = fem.locate_dofs_geometrical((state_space.sub(0).sub(comp),V_c), bnd_fun)
-        bc = fem.dirichletbc(u_fixed, dofs, state_space.sub(0).sub(comp))
+        dofs = df.fem.locate_dofs_geometrical((state_space.sub(0).sub(comp),V_c), bnd_fun)
+        bc = df.fem.dirichletbc(u_fixed, dofs, state_space.sub(0).sub(comp))
         bcs.append(bc)
     
     # then the moving one
     V0, _ = state_space.sub(0).collapse()
     V0x, _ = V0.sub(0).collapse()
     
-    stretch_fun = fem.Function(V0x)
+    stretch_fun = df.fem.Function(V0x)
     stretch_fun.vector.array[:] = 0
 
     boundary_facets = df.mesh.locate_entities_boundary(mesh, fdim, xmax_bnd)
